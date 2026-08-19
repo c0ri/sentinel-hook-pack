@@ -1,0 +1,30 @@
+[
+  {
+    "event": "PreToolUse",
+    "entry": {
+      "matcher": "Write|Edit|MultiEdit",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "python3 secrets_detect.py",
+          "timeout": 10,
+          "statusMessage": "Checking content for secrets..."
+        }
+      ]
+    }
+  },
+  {
+    "event": "PreToolUse",
+    "entry": {
+      "matcher": "Bash",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "python3 secrets_detect.py",
+          "timeout": 10,
+          "statusMessage": "Checking command for secrets..."
+        }
+      ]
+    }
+  }
+]

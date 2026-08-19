@@ -1,0 +1,12 @@
+name: block_secret_files.py
+version: 0.1.0
+status: needs-generalization
+fail_mode: open
+description: >
+  Blocks direct Read/Bash-cat access to secret-bearing files (.env, .pem,
+  id_rsa/id_ed25519, credentials.json, secrets.*, .key, /etc/shadow,
+  /etc/gshadow, /etc/passwd, rc-files with embedded tokens, etc.) so raw
+  secret material never lands in the transcript. Promoted from a fleet-
+  local hook -- path-pattern/verb logic carries over as-is; only the
+  docstring needs a sanitization pass (strip real incident/service names
+  before this repo goes public).

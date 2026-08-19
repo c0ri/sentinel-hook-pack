@@ -1,0 +1,30 @@
+[
+  {
+    "event": "PreToolUse",
+    "entry": {
+      "matcher": "Bash",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "python3 block_secret_files.py",
+          "timeout": 10,
+          "statusMessage": "Checking for secret-file access..."
+        }
+      ]
+    }
+  },
+  {
+    "event": "PreToolUse",
+    "entry": {
+      "matcher": "Read",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "python3 block_secret_files.py",
+          "timeout": 10,
+          "statusMessage": "Checking for secret-file access..."
+        }
+      ]
+    }
+  }
+]

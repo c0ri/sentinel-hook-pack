@@ -1,0 +1,16 @@
+[
+  {
+    "event": "PreToolUse",
+    "entry": {
+      "matcher": "Bash",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "python3 slopscan_preinstall.py",
+          "timeout": 20,
+          "statusMessage": "Checking package against SlopScan..."
+        }
+      ]
+    }
+  }
+]
