@@ -21,19 +21,21 @@ TARGET_HOOKS_DIR="${CLAUDE_HOOKS_DIR:-$HOME/.claude/hooks}"
 TARGET_SETTINGS="${CLAUDE_SETTINGS:-$HOME/.claude/settings.json}"
 export NONINTERACTIVE=0
 export WITH_SLOPSCAN_DOCKER=0
+export WITH_SLOPSCAN_PIP=0
 
 for arg in "$@"; do
   case "$arg" in
     --yes|-y) NONINTERACTIVE=1 ;;
     --with-slopscan-docker) WITH_SLOPSCAN_DOCKER=1 ;;
+    --with-slopscan-pip) WITH_SLOPSCAN_PIP=1 ;;
     --help|-h)
-      echo "usage: install.sh [--yes] [--with-slopscan-docker]"
+      echo "usage: install.sh [--yes] [--with-slopscan-docker | --with-slopscan-pip]"
       echo "Env overrides: CLAUDE_HOOKS_DIR, CLAUDE_SETTINGS"
       exit 0
       ;;
   esac
 done
-export NONINTERACTIVE WITH_SLOPSCAN_DOCKER
+export NONINTERACTIVE WITH_SLOPSCAN_DOCKER WITH_SLOPSCAN_PIP
 
 say()  { echo "==> $*"; }
 warn() { echo "!!  $*" >&2; }

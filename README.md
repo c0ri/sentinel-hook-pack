@@ -58,13 +58,24 @@ cd sentinel-hook-pack
    (idempotent — safe to re-run).
 3. The `slopscan` hook additionally needs a backend service to query. If one
    isn't already configured, `install.sh` explains what
-   [SlopScan](https://github.com/c0ri/SlopScan) is and offers to build and
-   run it locally in Docker (`hooks/slopscan/setup.sh`) — entirely optional;
-   declining just leaves that one hook out.
+   [SlopScan](https://github.com/c0ri/SlopScan) is and lets you choose how to
+   run it locally (`hooks/slopscan/setup.sh`) — entirely optional; declining
+   just leaves that one hook out:
+   - **Docker** — `docker run --restart unless-stopped`, so it survives
+     crashes and reboots with no further setup. Needs Docker; offers to
+     install it via Docker's own official script if it's missing on Linux
+     (no unattended install on macOS/Windows — Docker Desktop needs a GUI
+     installer there).
+   - **Python venv + pip** — no Docker dependency at all (SlopScan itself
+     needs nothing but `pip install` + `uvicorn`). On Linux this sets up a
+     `systemd --user` service (`Restart=on-failure`) for you; elsewhere it's
+     a plain background process you'd need to restart yourself after a
+     crash or reboot.
 4. Sign everything it installs.
 
-Non-interactive: `./install.sh --yes` (accepts every prompt, skips Docker
-setup unless `--with-slopscan-docker` is also passed).
+Non-interactive: `./install.sh --yes` (accepts every prompt, and sets up
+SlopScan via `--with-slopscan-docker` or `--with-slopscan-pip` if one of
+those is also passed — otherwise that hook is skipped).
 
 Env overrides: `CLAUDE_HOOKS_DIR`, `CLAUDE_SETTINGS`.
 
