@@ -29,6 +29,8 @@ export NONINTERACTIVE=0
 export WITH_SLOPSCAN_DOCKER=0
 export WITH_SLOPSCAN_PIP=0
 HOOKS_FILTER=""
+UNINSTALL=0
+WITH_SIGNER=0
 
 for arg in "$@"; do
   case "$arg" in
@@ -36,9 +38,15 @@ for arg in "$@"; do
     --with-slopscan-docker) WITH_SLOPSCAN_DOCKER=1 ;;
     --with-slopscan-pip) WITH_SLOPSCAN_PIP=1 ;;
     --hooks=*) HOOKS_FILTER="${arg#--hooks=}" ;;
+    --uninstall) UNINSTALL=1 ;;
+    --with-signer) WITH_SIGNER=1 ;;
     --help|-h)
       echo "usage: install.sh [--yes] [--hooks=name1,name2,...] [--with-slopscan-docker | --with-slopscan-pip]"
-      echo "  --hooks=  install only the named hooks/<name>/ dirs (skips the per-hook prompt for those); omit for all"
+      echo "       install.sh --uninstall [--yes] [--hooks=name1,name2,...] [--with-signer]"
+      echo "  --hooks=       install/uninstall only the named hooks/<name>/ dirs (skips the per-hook prompt); omit for all"
+      echo "  --uninstall    remove previously-installed hooks instead of installing"
+      echo "  --with-signer  (uninstall only) also uninstall claude-hookscanner (the HMAC signer) -- off by"
+      echo "                 default since it's a shared dependency other hooks outside this pack may use"
       echo "Env overrides: CLAUDE_HOOKS_DIR, CLAUDE_SETTINGS"
       exit 0
       ;;
@@ -73,6 +81,140 @@ manifest_get() {
   # return an empty string instead, same as "field not set."
   grep -E "^$2:" "$1" 2>/dev/null | head -1 | sed -E "s/^$2:[[:space:]]*//" || true
 }
+
+# ── --uninstall ───────────────────────────────────────────────────────────
+# Removes a hook's wiring from settings.json and its script from
+# TARGET_HOOKS_DIR. Deliberately does NOT touch the HMAC signer
+# (claude-hookscanner) by default -- it's a shared dependency other hooks
+# outside this pack may rely on, so removing it is only ever an explicit
+# --with-signer choice, never a side effect of removing one hook.
+teardown_slopscan_backend() {
+  local config_file="$TARGET_HOOKS_DIR/slopscan.env"
+  local pid_file="$TARGET_HOOKS_DIR/slopscan.pid"
+  local container_name="sentinel-hook-pack-slopscan"
+  local image_tag="sentinel-hook-pack/slopscan:local"
+  local systemd_unit="sentinel-hook-pack-slopscan.service"
+  local unit_file="$HOME/.config/systemd/user/$systemd_unit"
+  # Default clone dir, overridden below if setup.sh recorded a different one
+  # (e.g. a custom SLOPSCAN_CLONE_DIR at install time) -- read back what was
+  # actually configured rather than re-guessing, same discipline
+  # claude-hookscanner's own uninstall uses for its key path.
+  local clone_dir="$HOME/.local/share/sentinel-hook-pack/SlopScan"
+
+  if [ -f "$config_file" ]; then
+    local recorded_clone_dir
+    recorded_clone_dir="$(grep -E '^SLOPSCAN_CLONE_DIR=' "$config_file" 2>/dev/null | head -1 | cut -d= -f2- || true)"
+    [ -n "$recorded_clone_dir" ] && clone_dir="$recorded_clone_dir"
+  fi
+
+  say "  Tearing down slopscan's local backend..."
+
+  if command -v docker >/dev/null 2>&1 && docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$container_name"; then
+    say "    Stopping/removing Docker container $container_name..."
+    docker rm -f "$container_name" >/dev/null 2>&1 || warn "    Couldn't remove Docker container $container_name -- may need manual cleanup."
+    docker image inspect "$image_tag" >/dev/null 2>&1 && docker rmi "$image_tag" >/dev/null 2>&1
+  fi
+
+  if [ -f "$unit_file" ] && command -v systemctl >/dev/null 2>&1; then
+    say "    Stopping/disabling systemd --user service $systemd_unit..."
+    systemctl --user disable --now "$systemd_unit" >/dev/null 2>&1 || warn "    Couldn't stop/disable $systemd_unit -- may need manual cleanup."
+    rm -f "$unit_file"
+    systemctl --user daemon-reload 2>/dev/null || true
+  fi
+
+  if [ -f "$pid_file" ]; then
+    local pid
+    pid="$(cat "$pid_file" 2>/dev/null || true)"
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      say "    Stopping background process $pid..."
+      kill "$pid" 2>/dev/null || warn "    Couldn't stop process $pid -- may need manual cleanup."
+    fi
+    rm -f "$pid_file"
+  fi
+
+  # Only ever remove a directory that actually looks like our clone
+  # (has its own .git), never blindly rm -rf a recorded path.
+  if [ -d "$clone_dir/.git" ]; then
+    say "    Removing cloned SlopScan checkout at $clone_dir..."
+    rm -rf "$clone_dir"
+  fi
+
+  rm -f "$config_file" "$TARGET_HOOKS_DIR/slopscan.log"
+}
+
+if [ "$UNINSTALL" = "1" ]; then
+  if [ ! -f "$TARGET_SETTINGS" ]; then
+    warn "$TARGET_SETTINGS not found -- nothing to uninstall."
+    exit 0
+  fi
+
+  for hook_dir in "$HOOKS_SRC_DIR"/*/; do
+    hook_dir="${hook_dir%/}"
+    hook_dirname="$(basename "$hook_dir")"
+    manifest="$hook_dir/manifest.yaml"
+    [ -f "$manifest" ] || continue
+    hook_is_selected "$hook_dirname" || continue
+
+    name=$(manifest_get "$manifest" "name")
+    target="$TARGET_HOOKS_DIR/$name"
+
+    if [ ! -f "$target" ]; then
+      say "SKIP $name -- not installed at $target"
+      continue
+    fi
+
+    echo
+    say "== $name =="
+    if [ "$NONINTERACTIVE" != "1" ] && [ -z "$HOOKS_FILTER" ]; then
+      read -r -p "Uninstall $name? [y/N] " reply
+      if [[ ! "${reply:-}" =~ ^[Yy] ]]; then
+        say "Skipping $name."
+        continue
+      fi
+    fi
+
+    tmp=$(mktemp)
+    jq --arg name "$name" '
+      .hooks //= {} |
+      .hooks |= (
+        with_entries(.value |= map(select((.hooks // []) | any(.command? // "" | endswith($name)) | not)))
+        | with_entries(select(.value | length > 0))
+      )
+    ' "$TARGET_SETTINGS" > "$tmp"
+    mv "$tmp" "$TARGET_SETTINGS"
+    say "  Removed wiring for $name from $TARGET_SETTINGS"
+
+    rm -f "$target"
+    say "  Removed $target"
+
+    if [ "$hook_dirname" = "slopscan" ]; then
+      teardown_slopscan_backend
+    fi
+  done
+
+  if [ "$WITH_SIGNER" = "1" ]; then
+    echo
+    scanner_dir="$HOME/.local/share/claude-hookscanner"
+    if [ -x "$scanner_dir/install.sh" ]; then
+      say "Uninstalling claude-hookscanner (the HMAC signer)..."
+      uninstall_args=(--uninstall)
+      [ "$NONINTERACTIVE" = "1" ] && uninstall_args+=(--yes)
+      (cd "$scanner_dir" && ./install.sh "${uninstall_args[@]}")
+    else
+      warn "claude-hookscanner not found at $scanner_dir -- can't uninstall the signer automatically."
+      warn "Run its own --uninstall from wherever you installed it, if anywhere else."
+    fi
+  fi
+
+  echo
+  if jq -e . "$TARGET_SETTINGS" > /dev/null; then
+    say "settings.json is valid JSON."
+  else
+    warn "$TARGET_SETTINGS failed JSON validation -- check it by hand before trusting it."
+  fi
+  say "Done."
+  exit 0
+fi
 
 # ── 1. Signer bootstrap ─────────────────────────────────────────────────
 find_sign_hook() {

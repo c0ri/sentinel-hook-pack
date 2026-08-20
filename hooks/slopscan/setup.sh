@@ -105,10 +105,18 @@ pick_port() {
 }
 
 write_config_and_verify() {
-  # $1 = port
+  # $1 = port  $2 = backend ("docker" or "pip") -- recorded (along with the
+  # actual clone dir used, which may differ from the default via
+  # $SLOPSCAN_CLONE_DIR) so a future `install.sh --uninstall` knows exactly
+  # what to tear down instead of re-guessing defaults that might be wrong.
   local port="$1"
+  local backend="$2"
   mkdir -p "$CONFIG_DIR"
-  echo "SLOPSCAN_URL=http://127.0.0.1:$port" > "$CONFIG_FILE"
+  {
+    echo "SLOPSCAN_URL=http://127.0.0.1:$port"
+    echo "SLOPSCAN_BACKEND=$backend"
+    echo "SLOPSCAN_CLONE_DIR=$CLONE_DIR"
+  } > "$CONFIG_FILE"
   say "SlopScan running at http://127.0.0.1:$port -- config written to $CONFIG_FILE"
   sleep 1
   if curl -fsS "http://127.0.0.1:$port/check/pypi/requests" >/dev/null 2>&1; then
@@ -182,7 +190,7 @@ setup_docker() {
       -p "127.0.0.1:$port:8765" "$IMAGE_TAG" >/dev/null
   fi
 
-  write_config_and_verify "$port"
+  write_config_and_verify "$port" "docker"
 }
 
 # ── Pip/venv backend ─────────────────────────────────────────────────────
@@ -240,12 +248,16 @@ EOF
       cd "$CLONE_DIR"
       nohup "$venv_dir/bin/python" -m uvicorn main:app --host 127.0.0.1 --port "$port" \
         > "$CONFIG_DIR/slopscan.log" 2>&1 &
+      # nohup execs into uvicorn (doesn't fork a wrapper), so $! is uvicorn's
+      # own PID -- recorded so a future uninstall can find and stop exactly
+      # this process, not any other python/uvicorn that happens to be running.
+      echo $! > "$CONFIG_DIR/slopscan.pid"
       disown
     )
     say "Started in the background -- logs at $CONFIG_DIR/slopscan.log"
   fi
 
-  write_config_and_verify "$port"
+  write_config_and_verify "$port" "pip"
 }
 
 case "$BACKEND" in

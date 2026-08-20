@@ -183,6 +183,34 @@ combine it with `--yes` for a fully non-interactive partial install.
 
 Env overrides: `CLAUDE_HOOKS_DIR`, `CLAUDE_SETTINGS`.
 
+### Uninstall
+
+```bash
+./install.sh --uninstall
+```
+
+For each installed hook, asks before removing it, then removes its wiring
+from `settings.json` and its script from `~/.claude/hooks/`. Same `--yes`
+and `--hooks=name1,name2` flags as install work here too — `--hooks=` skips
+the prompt for the named hooks, same as it does on install.
+
+Uninstalling `slopscan` also tears down whatever local backend `setup.sh`
+set up for it — stops and removes the Docker container/image, or disables
+the `systemd --user` service, or kills the background process, whichever
+one is actually running — and removes the cloned SlopScan checkout and its
+config/log files. It reads back what was actually configured (recorded in
+`slopscan.env` at setup time) rather than guessing, so this works correctly
+even with a custom `SLOPSCAN_CLONE_DIR`.
+
+The HMAC signer (`claude-hookscanner`) is **not** touched by default, even
+if you uninstall every hook — it's a shared dependency other hooks outside
+this pack may rely on, so removing it is never a side effect. Pass
+`--with-signer` if you want that uninstalled too:
+
+```bash
+./install.sh --uninstall --with-signer
+```
+
 ## License
 
 Apache 2.0, see `LICENSE`.
