@@ -229,11 +229,19 @@ EOF
   else
     warn "No systemd --user available on this system -- falling back to a plain background process."
     warn "It will NOT survive a crash or reboot; you'll need to restart it yourself:"
-    warn "  $venv_dir/bin/python -m uvicorn main:app --host 127.0.0.1 --port $port"
+    warn "  (cd $CLONE_DIR && $venv_dir/bin/python -m uvicorn main:app --host 127.0.0.1 --port $port)"
     mkdir -p "$CONFIG_DIR"
-    nohup "$venv_dir/bin/python" -m uvicorn main:app --host 127.0.0.1 --port "$port" \
-      > "$CONFIG_DIR/slopscan.log" 2>&1 &
-    disown
+    # uvicorn resolves "main:app" as a module import relative to the CURRENT
+    # working directory, not the venv's location -- without this cd, it runs
+    # from wherever install.sh happened to be invoked from (never $CLONE_DIR)
+    # and fails with "Could not import module main", silently, since nohup
+    # already detached stderr to the log file the user isn't watching.
+    (
+      cd "$CLONE_DIR"
+      nohup "$venv_dir/bin/python" -m uvicorn main:app --host 127.0.0.1 --port "$port" \
+        > "$CONFIG_DIR/slopscan.log" 2>&1 &
+      disown
+    )
     say "Started in the background -- logs at $CONFIG_DIR/slopscan.log"
   fi
 
