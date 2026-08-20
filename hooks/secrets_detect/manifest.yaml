@@ -1,10 +1,15 @@
 name: secrets_detect.py
 version: 0.1.0
-status: stub
+status: ready
 fail_mode: open
 description: >
   Redacts vendor-style secret tokens (cloud/CI-CD/messaging/payment/AI
-  provider patterns) from content about to be written to disk via
-  Write/Edit/MultiEdit (redact-in-place through updatedInput), and blocks
-  Bash commands whose command string carries an obvious secret-shaped
-  token (deny-only -- no output mutation is available at that stage).
+  provider patterns -- Anthropic, OpenAI, Stripe, GitHub, Slack, AWS, GCP,
+  DigitalOcean, npm, Docker Hub, GitLab, Discord, HuggingFace, Replicate,
+  JWTs, PEM keys, DB connection strings, plus generic KEY/SECRET/TOKEN/
+  PASSWORD-style env assignments) from content about to be written to disk
+  via Write/Edit/MultiEdit (redact-in-place through updatedInput), and
+  blocks Bash commands whose command string carries an obvious
+  secret-shaped token (deny-only -- no output mutation is available at
+  that stage). Detection logic is a hand-synced vendored copy of Sentinel
+  Engine's secret_detector.py.

@@ -7,3 +7,16 @@ venv/
 *.log
 settings.json.bak.*
 .DS_Store
+
+# Runtime state from install.sh/setup.sh normally lands outside the repo
+# ($HOME/.claude, $HOME/.local/share) -- these guard against a repo-relative
+# CLAUDE_HOOKS_DIR/CLAUDE_SETTINGS test run (the README documents both as
+# env overrides) landing generated files, a local backend URL, or a signing
+# key inside the tracked tree.
+sandbox-home/
+settings.json
+*.env
+.hmac_key
+
+# In case this repo is itself opened/worked on with Claude Code.
+.claude/

@@ -1,12 +1,14 @@
 name: slopscan_preinstall.py
 version: 0.1.0
-status: needs-generalization
+status: ready
 fail_mode: open
 description: >
-  Checks npm/pnpm/yarn/pip/pip3/uv package installs against a SlopScan
-  backend (package-hallucination / slopsquatting detection) before they
-  run. Promoted from a fleet-local hook -- command parsing carries over
-  as-is; the SlopScan endpoint must become configurable (env var / config
-  file, see setup.sh) instead of the fleet's hardcoded ssh-tunnel address.
+  Checks npm/pnpm/yarn/pip/pip3/uv package installs against a local
+  SlopScan backend (package-hallucination / slopsquatting detection)
+  before they run. Promoted from a fleet-local hook -- command-parsing
+  logic carries over as-is; the backend address is now read from
+  SLOPSCAN_URL or slopscan.env (written by setup.sh) over plain HTTP,
+  instead of the fleet's SSH-tunneled address. Fails open (silent allow)
+  if no backend is configured or it's unreachable.
 requires_backend: true
 setup_script: setup.sh

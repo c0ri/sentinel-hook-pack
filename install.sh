@@ -2,17 +2,23 @@
 # install.sh -- bundle installer for sentinel-hook-pack.
 #
 # For each hook under hooks/<name>/:
-#   1. Ask before installing (unless --yes).
+#   1. Ask before installing (unless --yes or --hooks= named it explicitly).
 #   2. If it needs a backend (manifest.yaml: requires_backend: true), run
 #      its setup.sh first; a decline/failure there skips just that hook
 #      and continues with the rest of the pack.
 #   3. Copy its script into place, merge its wiring.json into
 #      settings.json (idempotent -- safe to re-run), sign it.
 #
+# --hooks=name1,name2 installs only the named hook directories (matched
+# against the hooks/<name>/ dirname, e.g. --hooks=secrets_detect,slopscan)
+# and skips the per-hook prompt for anything in the list -- an explicit
+# name is itself the "yes, install this one" answer. Anything not in the
+# list is skipped outright, no prompt. Omit --hooks entirely to keep the
+# default behavior (prompt for every hook, or --yes for all of them).
+#
 # hook_guard (HMAC signing) is not vendored here -- it's bootstrapped from
 # claude-hookscanner (github.com/c0ri/claude-hookscanner), the one
-# canonical copy of that logic, same pattern proven in do-hosting's
-# claude-hooks installer.
+# canonical copy of that logic.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,20 +28,34 @@ TARGET_SETTINGS="${CLAUDE_SETTINGS:-$HOME/.claude/settings.json}"
 export NONINTERACTIVE=0
 export WITH_SLOPSCAN_DOCKER=0
 export WITH_SLOPSCAN_PIP=0
+HOOKS_FILTER=""
 
 for arg in "$@"; do
   case "$arg" in
     --yes|-y) NONINTERACTIVE=1 ;;
     --with-slopscan-docker) WITH_SLOPSCAN_DOCKER=1 ;;
     --with-slopscan-pip) WITH_SLOPSCAN_PIP=1 ;;
+    --hooks=*) HOOKS_FILTER="${arg#--hooks=}" ;;
     --help|-h)
-      echo "usage: install.sh [--yes] [--with-slopscan-docker | --with-slopscan-pip]"
+      echo "usage: install.sh [--yes] [--hooks=name1,name2,...] [--with-slopscan-docker | --with-slopscan-pip]"
+      echo "  --hooks=  install only the named hooks/<name>/ dirs (skips the per-hook prompt for those); omit for all"
       echo "Env overrides: CLAUDE_HOOKS_DIR, CLAUDE_SETTINGS"
       exit 0
       ;;
   esac
 done
 export NONINTERACTIVE WITH_SLOPSCAN_DOCKER WITH_SLOPSCAN_PIP
+
+hook_is_selected() {
+  # $1 = hook dirname (e.g. "secrets_detect"). Empty HOOKS_FILTER means "all".
+  [ -z "$HOOKS_FILTER" ] && return 0
+  local IFS=,
+  local wanted
+  for wanted in $HOOKS_FILTER; do
+    [ "$wanted" = "$1" ] && return 0
+  done
+  return 1
+}
 
 say()  { echo "==> $*"; }
 warn() { echo "!!  $*" >&2; }
@@ -47,7 +67,11 @@ manifest_get() {
   # $1 = manifest.yaml path  $2 = scalar key -- only handles the flat
   # scalar fields this installer needs (name/status/fail_mode/
   # requires_backend/setup_script), not the multi-line description block.
-  grep -E "^$2:" "$1" 2>/dev/null | head -1 | sed -E "s/^$2:[[:space:]]*//"
+  # An optional field (requires_backend/setup_script) that's simply absent
+  # from a given manifest makes grep return no match (exit 1) -- under
+  # `set -o pipefail` that would kill the whole script, so swallow it and
+  # return an empty string instead, same as "field not set."
+  grep -E "^$2:" "$1" 2>/dev/null | head -1 | sed -E "s/^$2:[[:space:]]*//" || true
 }
 
 # ── 1. Signer bootstrap ─────────────────────────────────────────────────
@@ -81,7 +105,11 @@ if [ -z "$SIGN_HOOK" ]; then
     fi
     if (cd "$scanner_dir" && ./install.sh --yes); then
       SIGN_HOOK="$(find_sign_hook || true)"
-      [ -n "$SIGN_HOOK" ] && say "Signer found at: $SIGN_HOOK" || warn "claude-hookscanner installed but sign-hook.sh still wasn't found (PATH may need a new shell)."
+      if [ -n "$SIGN_HOOK" ]; then
+        say "Signer found at: $SIGN_HOOK"
+      else
+        warn "claude-hookscanner installed but sign-hook.sh still wasn't found (PATH may need a new shell)."
+      fi
     else
       warn "claude-hookscanner install failed -- continuing without signing."
     fi
@@ -102,9 +130,15 @@ jq '.hooks //= {}' "$TARGET_SETTINGS" > "$tmp" && mv "$tmp" "$TARGET_SETTINGS"
 # ── 3. Install loop ──────────────────────────────────────────────────────
 for hook_dir in "$HOOKS_SRC_DIR"/*/; do
   hook_dir="${hook_dir%/}"
+  hook_dirname="$(basename "$hook_dir")"
   manifest="$hook_dir/manifest.yaml"
   wiring="$hook_dir/wiring.json"
   [ -f "$manifest" ] || { warn "SKIP $hook_dir -- no manifest.yaml"; continue; }
+
+  if ! hook_is_selected "$hook_dirname"; then
+    say "SKIP $hook_dirname -- not in --hooks= list"
+    continue
+  fi
 
   name=$(manifest_get "$manifest" "name")
   status=$(manifest_get "$manifest" "status")
@@ -123,7 +157,7 @@ for hook_dir in "$HOOKS_SRC_DIR"/*/; do
     continue
   fi
 
-  if [ "$NONINTERACTIVE" != "1" ]; then
+  if [ "$NONINTERACTIVE" != "1" ] && [ -z "$HOOKS_FILTER" ]; then
     read -r -p "Install $name? [Y/n] " reply
     if [[ "${reply:-Y}" =~ ^[Nn] ]]; then
       say "Skipping $name."
@@ -153,8 +187,7 @@ for hook_dir in "$HOOKS_SRC_DIR"/*/; do
     # Token-safe path rewrite: only replace the token that IS this hook's
     # filename (ends with /$name or is exactly $name) -- a blind
     # substring replace would also eat the interpreter or a leading
-    # env-var assignment sharing the same quoted string. Same fix already
-    # proven in do-hosting's claude-hooks installer.
+    # env-var assignment sharing the same quoted string.
     entry=$(jq -c --arg name "$name" --arg target "$TARGET_HOOKS_DIR/$name" '
       .entry.hooks |= map(
         .command |= (
@@ -169,7 +202,7 @@ for hook_dir in "$HOOKS_SRC_DIR"/*/; do
     # Match on BOTH name and exact matcher -- matching name alone would
     # wipe out a hook (like block_secret_files) registered under two
     # different matchers when processing the second wiring entry in the
-    # same run. Same fix already proven in do-hosting's installer.
+    # same run.
     jq --arg event "$event" --argjson entry "$entry" --arg name "$name" '
       .hooks[$event] //= [] |
       .hooks[$event] |= (
