@@ -68,7 +68,15 @@ hook_is_selected() {
 say()  { echo "==> $*"; }
 warn() { echo "!!  $*" >&2; }
 
-command -v jq >/dev/null 2>&1 || { warn "jq is required and wasn't found."; exit 1; }
+OS="$(uname -s 2>/dev/null || echo unknown)"
+IS_MACOS=0
+[ "$OS" = "Darwin" ] && IS_MACOS=1
+
+if ! command -v jq >/dev/null 2>&1; then
+  warn "jq is required and wasn't found."
+  [ "$IS_MACOS" = "1" ] && warn "On macOS: brew install jq"
+  exit 1
+fi
 command -v git >/dev/null 2>&1 || { warn "git is required and wasn't found."; exit 1; }
 
 manifest_get() {
@@ -192,7 +200,11 @@ if [ "$UNINSTALL" = "1" ]; then
     fi
   done
 
-  if [ "$WITH_SIGNER" = "1" ]; then
+  if [ "$WITH_SIGNER" = "1" ] && [ "$IS_MACOS" = "1" ]; then
+    echo
+    warn "macOS: claude-hookscanner doesn't support macOS yet -- skipping --with-signer."
+    warn "If you installed it anyway, remove it yourself: $HOME/.local/share/claude-hookscanner"
+  elif [ "$WITH_SIGNER" = "1" ]; then
     echo
     scanner_dir="$HOME/.local/share/claude-hookscanner"
     if [ -x "$scanner_dir/install.sh" ]; then
@@ -225,7 +237,16 @@ find_sign_hook() {
 }
 
 SIGN_HOOK="$(find_sign_hook || true)"
-if [ -z "$SIGN_HOOK" ]; then
+if [ -z "$SIGN_HOOK" ] && [ "$IS_MACOS" = "1" ]; then
+  say "macOS: HMAC hook-signing (claude-hookscanner) isn't supported yet --"
+  say "it depends on Linux-only tools (GNU date, sha256sum, bash4+). Hooks"
+  say "below will install unsigned, which still works normally -- they'll"
+  say "just show up as flagged findings in any hook-integrity scan until"
+  say "macOS signing support ships. Follow along:"
+  say "https://github.com/c0ri/claude-hookscanner"
+  echo
+fi
+if [ -z "$SIGN_HOOK" ] && [ "$IS_MACOS" != "1" ]; then
   say "No HMAC signer (sign-hook.sh) found -- hooks will install unsigned and"
   say "show up as flagged findings in any hook-integrity scan until signed."
   echo

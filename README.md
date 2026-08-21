@@ -35,6 +35,12 @@ Every hook installed by this pack is HMAC-signed via
 dependency this installer bootstraps automatically if you don't already have
 a signer, not a second copy of that logic.
 
+**macOS:** all three hooks and `install.sh` itself work fine on macOS.
+Signing doesn't yet — `claude-hookscanner` currently depends on Linux-only
+tools, so on macOS `install.sh` skips the signer bootstrap automatically and
+installs hooks unsigned (they still work; they just won't show as verified
+in a hook-integrity scan until macOS signing support ships).
+
 ## How each hook works
 
 ### `secrets_detect`
