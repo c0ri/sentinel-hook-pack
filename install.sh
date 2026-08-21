@@ -106,8 +106,15 @@ teardown_slopscan_backend() {
   # Default clone dir, overridden below if setup.sh recorded a different one
   # (e.g. a custom SLOPSCAN_CLONE_DIR at install time) -- read back what was
   # actually configured rather than re-guessing, same discipline
-  # claude-hookscanner's own uninstall uses for its key path.
-  local clone_dir="$HOME/.local/share/sentinel-hook-pack/SlopScan"
+  # claude-hookscanner's own uninstall uses for its key path. Mirrors
+  # setup.sh's own CLAUDE_HOOKS_DIR-tracking default (only reached if
+  # slopscan.env itself is missing, e.g. install was interrupted).
+  local clone_dir
+  if [ -n "${CLAUDE_HOOKS_DIR:-}" ]; then
+    clone_dir="$(dirname "$CLAUDE_HOOKS_DIR")/slopscan-src"
+  else
+    clone_dir="$HOME/.local/share/sentinel-hook-pack/SlopScan"
+  fi
 
   if [ -f "$config_file" ]; then
     local recorded_clone_dir

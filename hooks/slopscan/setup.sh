@@ -15,7 +15,17 @@ set -euo pipefail
 NONINTERACTIVE="${NONINTERACTIVE:-0}"
 CONFIG_DIR="${CLAUDE_HOOKS_DIR:-$HOME/.claude/hooks}"
 CONFIG_FILE="$CONFIG_DIR/slopscan.env"
-CLONE_DIR="${SLOPSCAN_CLONE_DIR:-$HOME/.local/share/sentinel-hook-pack/SlopScan}"
+# Default clone dir tracks CLAUDE_HOOKS_DIR when it's overridden, so a
+# sandboxed install.sh run (testing, or any non-default CLAUDE_HOOKS_DIR)
+# stays fully self-contained instead of reaching into the real $HOME even
+# though CONFIG_DIR above was already sandboxed. SLOPSCAN_CLONE_DIR still
+# wins over both when set explicitly.
+if [ -n "${CLAUDE_HOOKS_DIR:-}" ]; then
+  DEFAULT_CLONE_DIR="$(dirname "$CLAUDE_HOOKS_DIR")/slopscan-src"
+else
+  DEFAULT_CLONE_DIR="$HOME/.local/share/sentinel-hook-pack/SlopScan"
+fi
+CLONE_DIR="${SLOPSCAN_CLONE_DIR:-$DEFAULT_CLONE_DIR}"
 CONTAINER_NAME="sentinel-hook-pack-slopscan"
 IMAGE_TAG="sentinel-hook-pack/slopscan:local"
 SYSTEMD_UNIT_NAME="sentinel-hook-pack-slopscan.service"
