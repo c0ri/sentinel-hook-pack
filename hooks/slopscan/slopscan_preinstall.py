@@ -9,6 +9,8 @@ written by this pack's setup.sh when it provisions a local backend). If
 neither is set, or the backend doesn't respond, this fails open (silent
 allow) -- a missing/unreachable SlopScan should never block an install.
 """
+from __future__ import annotations
+
 import json
 import os
 import pathlib
