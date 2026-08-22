@@ -45,12 +45,56 @@ in a hook-integrity scan until macOS signing support ships).
 Windows](https://git-scm.com/downloads/win)) — `install.sh` needs a real
 shell, not PowerShell/cmd. `jq` isn't bundled with Git Bash; grab the native
 `jq.exe` from the [jq releases page](https://github.com/jqlang/jq/releases)
-and put it on `PATH`. Signing is unsupported for the same reason as macOS —
-`install.sh` skips the bootstrap and installs hooks unsigned. `install.sh`
-resolves a working Python 3 interpreter itself (tries `python3`, `python`,
-`py -3` in order, actually invoking each rather than trusting `PATH` alone),
-since stock Windows shadows `python3` with a Microsoft Store alias stub that
-does nothing.
+and put it somewhere already on `PATH` — `~/bin` is a good choice (Git
+Bash puts it on `PATH` by default; `mkdir -p ~/bin && mv jq.exe ~/bin/`).
+Signing is unsupported for the same reason as macOS — `install.sh` skips
+the bootstrap and installs hooks unsigned. `install.sh` resolves a working
+Python 3 interpreter itself (tries `python3`, `python`, `py -3` in order,
+actually invoking each rather than trusting `PATH` alone), since stock
+Windows shadows `python3` with a Microsoft Store alias stub that does
+nothing.
+
+#### Windows quirks worth knowing about
+
+None of these are bugs — they're just things that will look alarming the
+first time you hit them, based on what actually happened running this
+pack end-to-end on a real Windows box:
+
+- **Run `install.sh` directly in a Git Bash terminal you control, not
+  pasted through another program's terminal passthrough** (an AI coding
+  assistant's `!`-shell feature, a remote exec box, etc.) if you can avoid
+  it. A single long `command1 && command2 --flag` line is exactly the kind
+  of thing those passthroughs can corrupt — a terminal that soft-wraps long
+  lines for display can end up submitting the wrapped version, inserting a
+  real newline mid-path or mid-flag. The symptom is confusing: `jq is
+  required and wasn't found` even though `jq` is right there on `PATH`, or
+  a trailing flag like `--hooks=slopscan` failing as `command not found`
+  on its own line. If you must run this through some kind of passthrough,
+  save the command to a small `.sh` file first and execute the file,
+  rather than pasting one long line.
+- **If you're driving this via an AI coding agent** (Claude Code or
+  similar) rather than typing directly into your own terminal: the agent's
+  own safety guardrails may refuse to run the SlopScan backend setup step
+  (`setup.sh`) itself, since it clones a repo, builds a venv, and starts a
+  persistent background service in your real environment — that's the
+  agent's own policy, not something this installer controls. If that
+  happens, you'll need to run `install.sh --with-slopscan-pip` (or
+  `--with-slopscan-docker`) yourself, directly in your terminal.
+- **`slopscan.pid` won't match what Task Manager / `tasklist` shows for
+  the running backend process, and that's expected.** Git Bash (MSYS)
+  tracks its own background jobs under its own internal PID numbering,
+  separate from the native Windows PID the same process shows up as
+  everywhere else. `install.sh --uninstall` reads and `kill`s the MSYS PID
+  correctly through Git Bash's own process tracking — it works — but don't
+  be alarmed if that recorded PID means nothing to `tasklist` or Task
+  Manager; check `netstat -ano | grep :8765` for the real Windows PID if
+  you need it for something outside Git Bash.
+- **The SlopScan backend won't survive a reboot on Windows** — there's no
+  Windows equivalent of the systemd `--user` service `setup.sh` sets up on
+  Linux, so it falls back to a plain background process. `setup.sh` prints
+  the exact restart command when it sets this up; you'll need to run it
+  again yourself after a reboot (or re-run `install.sh --with-slopscan-pip
+  --hooks=slopscan`, which is idempotent).
 
 ## How each hook works
 
