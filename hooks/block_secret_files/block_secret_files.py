@@ -108,8 +108,8 @@ def main():
                 "permissionDecision": "deny",
                 "permissionDecisionReason": (
                     f"Blocked: '{blocked_path}' matches a secret-bearing file pattern "
-                    "(.env/.pem/id_rsa/id_ed25519/credentials.json/secrets.*/.key/frp*.toml/"
-                    "/etc/shadow/gshadow). "
+                    "(.env/.pem/id_rsa/id_ed25519/credentials.json/secrets.*/.key/frp*.toml, "
+                    "/etc/shadow, /etc/gshadow). "
                     "Reading raw contents of this kind of file into the transcript has caused "
                     "real credential leaks before and required rotating multiple live keys. "
                     "Use presence/format-only checks instead: `cut -d= -f1 <file>` to list key "

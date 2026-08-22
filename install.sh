@@ -71,13 +71,43 @@ warn() { echo "!!  $*" >&2; }
 OS="$(uname -s 2>/dev/null || echo unknown)"
 IS_MACOS=0
 [ "$OS" = "Darwin" ] && IS_MACOS=1
+IS_WINDOWS=0
+case "$OS" in MINGW*|MSYS*|CYGWIN*) IS_WINDOWS=1 ;; esac
 
 if ! command -v jq >/dev/null 2>&1; then
   warn "jq is required and wasn't found."
   [ "$IS_MACOS" = "1" ] && warn "On macOS: brew install jq"
+  [ "$IS_WINDOWS" = "1" ] && warn "On Windows/Git Bash: no MSYS build -- grab the native jq.exe from https://github.com/jqlang/jq/releases and put it on PATH."
   exit 1
 fi
 command -v git >/dev/null 2>&1 || { warn "git is required and wasn't found."; exit 1; }
+
+# ── Working Python 3 interpreter ────────────────────────────────────────
+# `command -v python3` alone is NOT sufficient: stock Windows shadows
+# `python3` on PATH with a Microsoft Store app-execution-alias stub that
+# exists (so command -v finds it) but just prints "Python was not found..."
+# and exits nonzero instead of running anything -- most Windows Python
+# installs register as `python`, not `python3`. So this actually invokes
+# each candidate instead of just checking PATH.
+python3_actually_works() {
+  $1 -c "import sys" >/dev/null 2>&1
+}
+resolve_python3() {
+  local candidate
+  for candidate in python3 python "py -3"; do
+    if python3_actually_works "$candidate"; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+PYTHON3_BIN="$(resolve_python3 || true)"
+if [ -z "$PYTHON3_BIN" ]; then
+  warn "No working Python 3 interpreter found (tried python3, python, py -3)."
+  [ "$IS_WINDOWS" = "1" ] && warn "On Windows: install Python from python.org (check 'Add python.exe to PATH') or via the Microsoft Store, then re-run."
+  exit 1
+fi
 
 manifest_get() {
   # $1 = manifest.yaml path  $2 = scalar key -- only handles the flat
@@ -211,6 +241,10 @@ if [ "$UNINSTALL" = "1" ]; then
     echo
     warn "macOS: claude-hookscanner doesn't support macOS yet -- skipping --with-signer."
     warn "If you installed it anyway, remove it yourself: $HOME/.local/share/claude-hookscanner"
+  elif [ "$WITH_SIGNER" = "1" ] && [ "$IS_WINDOWS" = "1" ]; then
+    echo
+    warn "Windows: claude-hookscanner doesn't support Windows yet -- skipping --with-signer."
+    warn "If you installed it anyway, remove it yourself: $HOME/.local/share/claude-hookscanner"
   elif [ "$WITH_SIGNER" = "1" ]; then
     echo
     scanner_dir="$HOME/.local/share/claude-hookscanner"
@@ -253,7 +287,16 @@ if [ -z "$SIGN_HOOK" ] && [ "$IS_MACOS" = "1" ]; then
   say "https://github.com/c0ri/claude-hookscanner"
   echo
 fi
-if [ -z "$SIGN_HOOK" ] && [ "$IS_MACOS" != "1" ]; then
+if [ -z "$SIGN_HOOK" ] && [ "$IS_WINDOWS" = "1" ]; then
+  say "Windows: HMAC hook-signing (claude-hookscanner) isn't supported yet --"
+  say "it depends on Linux-only tools (GNU date, sha256sum, bash4+, chmod"
+  say "--reference). Hooks below will install unsigned, which still works"
+  say "normally -- they'll just show up as flagged findings in any"
+  say "hook-integrity scan until Windows signing support ships. Follow along:"
+  say "https://github.com/c0ri/claude-hookscanner"
+  echo
+fi
+if [ -z "$SIGN_HOOK" ] && [ "$IS_MACOS" != "1" ] && [ "$IS_WINDOWS" != "1" ]; then
   say "No HMAC signer (sign-hook.sh) found -- hooks will install unsigned and"
   say "show up as flagged findings in any hook-integrity scan until signed."
   echo
@@ -357,16 +400,36 @@ for hook_dir in "$HOOKS_SRC_DIR"/*/; do
     # Token-safe path rewrite: only replace the token that IS this hook's
     # filename (ends with /$name or is exactly $name) -- a blind
     # substring replace would also eat the interpreter or a leading
-    # env-var assignment sharing the same quoted string.
-    entry=$(jq -c --arg name "$name" --arg target "$TARGET_HOOKS_DIR/$name" '
+    # env-var assignment sharing the same quoted string. Also swap the
+    # literal "python3" token for whatever interpreter actually works
+    # (see resolve_python3 above) -- bare "python3" silently no-ops on
+    # stock Windows, where it resolves to a Microsoft Store alias stub.
+    # $PYTHON3_BIN may itself be multiple words (e.g. "py -3"), so it's
+    # split and spliced in rather than substituted as a single token.
+    #
+    # Fed via a temp file rather than process substitution (<(...)):
+    # native Win32 jq.exe can't resolve Git Bash's /proc/<pid>/fd/N paths
+    # (they're an MSYS-runtime abstraction invisible to non-MSYS binaries),
+    # so <(...) hard-fails there and previously killed this whole loop
+    # under set -euo pipefail partway through, leaving hooks copied but
+    # unwired.
+    entry_src=$(mktemp)
+    jq -c ".[$i]" "$wiring" > "$entry_src"
+    entry=$(jq -c --arg name "$name" --arg target "$TARGET_HOOKS_DIR/$name" --arg pybin "$PYTHON3_BIN" '
       .entry.hooks |= map(
         .command |= (
           split(" ")
-          | map(if test("(^|/)" + $name + "$") then $target else . end)
+          | map(
+              if . == "python3" then ($pybin | split(" "))
+              elif test("(^|/)" + $name + "$") then [$target]
+              else [.] end
+            )
+          | flatten
           | join(" ")
         )
       ) | .entry
-    ' <(jq -c ".[$i]" "$wiring"))
+    ' "$entry_src")
+    rm -f "$entry_src"
 
     tmp=$(mktemp)
     # Match on BOTH name and exact matcher -- matching name alone would

@@ -60,7 +60,7 @@ def strip_version(pkg: str, ecosystem: str) -> str:
             return "@" + rest
         return pkg.split("@", 1)[0]
     # pypi
-    return re.split(r"(==|>=|<=|~=|!=|>|<|\[)", pkg, 1)[0]
+    return re.split(r"(==|>=|<=|~=|!=|>|<|\[)", pkg, maxsplit=1)[0]
 
 
 def _parse_requirements_text(text: str, ecosystem: str) -> list[str]:

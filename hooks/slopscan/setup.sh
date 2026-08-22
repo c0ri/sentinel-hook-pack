@@ -205,24 +205,45 @@ setup_docker() {
 
 # ── Pip/venv backend ─────────────────────────────────────────────────────
 setup_pip() {
-  command -v python3 >/dev/null 2>&1 || { warn "python3 not found -- can't use the pip/venv backend. Install Python 3 or re-run and choose Docker instead."; exit 1; }
+  local py3
+  # Same "actually invoke it" guard install.sh uses -- command -v alone
+  # passes on stock Windows even though python3 there is a Microsoft Store
+  # alias stub that doesn't run anything.
+  for py3 in python3 python "py -3"; do
+    $py3 -c "import sys" >/dev/null 2>&1 && break
+    py3=""
+  done
+  [ -n "$py3" ] || { warn "No working Python 3 interpreter found (tried python3, python, py -3) -- can't use the pip/venv backend. Install Python 3 or re-run and choose Docker instead."; exit 1; }
 
   clone_slopscan
 
   local venv_dir="$CLONE_DIR/venv"
-  if [ ! -x "$venv_dir/bin/python" ]; then
+  # venv layout differs on Windows: Scripts/ with .exe suffixes, not bin/.
+  local os
+  os="$(uname -s 2>/dev/null || echo unknown)"
+  local venv_bin="$venv_dir/bin"
+  local exe=""
+  case "$os" in MINGW*|MSYS*|CYGWIN*) venv_bin="$venv_dir/Scripts"; exe=".exe" ;; esac
+  local venv_python="$venv_bin/python$exe"
+  local venv_pip="$venv_bin/pip$exe"
+
+  if [ ! -x "$venv_python" ]; then
     say "Creating a virtualenv at $venv_dir..."
-    python3 -m venv "$venv_dir"
+    $py3 -m venv "$venv_dir"
   fi
   say "Installing dependencies (no system packages touched -- isolated to this venv)..."
-  "$venv_dir/bin/pip" install -q --upgrade pip
-  "$venv_dir/bin/pip" install -q -r "$CLONE_DIR/requirements.txt"
+  # Module invocation, not "$venv_pip install --upgrade pip" directly: on
+  # Windows a running pip.exe can't overwrite its own locked executable
+  # file, so a self-upgrade via the pip.exe entry point hard-fails on
+  # essentially every fresh venv (pip ships outdated by default). Routing
+  # through python.exe -m pip sidesteps that; works identically on Linux/
+  # macOS too, including the pip-already-current no-op case.
+  "$venv_python" -m pip install -q --upgrade pip
+  "$venv_pip" install -q -r "$CLONE_DIR/requirements.txt"
 
   local port
   port="$(pick_port "$DEFAULT_PORT")"
 
-  local os
-  os="$(uname -s 2>/dev/null || echo unknown)"
   if [ "$os" = "Linux" ] && command -v systemctl >/dev/null 2>&1 && [ -n "${XDG_RUNTIME_DIR:-}" ]; then
     say "Setting up a systemd --user service so this restarts on crash automatically..."
     local unit_dir="$HOME/.config/systemd/user"
@@ -247,7 +268,7 @@ EOF
   else
     warn "No systemd --user available on this system -- falling back to a plain background process."
     warn "It will NOT survive a crash or reboot; you'll need to restart it yourself:"
-    warn "  (cd $CLONE_DIR && $venv_dir/bin/python -m uvicorn main:app --host 127.0.0.1 --port $port)"
+    warn "  (cd $CLONE_DIR && $venv_python -m uvicorn main:app --host 127.0.0.1 --port $port)"
     mkdir -p "$CONFIG_DIR"
     # uvicorn resolves "main:app" as a module import relative to the CURRENT
     # working directory, not the venv's location -- without this cd, it runs
@@ -256,7 +277,7 @@ EOF
     # already detached stderr to the log file the user isn't watching.
     (
       cd "$CLONE_DIR"
-      nohup "$venv_dir/bin/python" -m uvicorn main:app --host 127.0.0.1 --port "$port" \
+      nohup "$venv_python" -m uvicorn main:app --host 127.0.0.1 --port "$port" \
         > "$CONFIG_DIR/slopscan.log" 2>&1 &
       # nohup execs into uvicorn (doesn't fork a wrapper), so $! is uvicorn's
       # own PID -- recorded so a future uninstall can find and stop exactly

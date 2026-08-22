@@ -41,6 +41,17 @@ tools, so on macOS `install.sh` skips the signer bootstrap automatically and
 installs hooks unsigned (they still work; they just won't show as verified
 in a hook-integrity scan until macOS signing support ships).
 
+**Windows:** run this from Git Bash (comes with [Git for
+Windows](https://git-scm.com/downloads/win)) — `install.sh` needs a real
+shell, not PowerShell/cmd. `jq` isn't bundled with Git Bash; grab the native
+`jq.exe` from the [jq releases page](https://github.com/jqlang/jq/releases)
+and put it on `PATH`. Signing is unsupported for the same reason as macOS —
+`install.sh` skips the bootstrap and installs hooks unsigned. `install.sh`
+resolves a working Python 3 interpreter itself (tries `python3`, `python`,
+`py -3` in order, actually invoking each rather than trusting `PATH` alone),
+since stock Windows shadows `python3` with a Microsoft Store alias stub that
+does nothing.
+
 ## How each hook works
 
 ### `secrets_detect`
