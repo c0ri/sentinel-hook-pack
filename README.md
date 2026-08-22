@@ -22,6 +22,7 @@ transcript, or already run. These hooks run locally, before the tool call
 that would do the damage completes — closer to the source, cheaper to check,
 no network round-trip required.
 
+
 ## What's in the pack
 
 | Hook | Stage | What it does |
