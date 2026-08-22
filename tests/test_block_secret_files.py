@@ -77,6 +77,32 @@ def test_bash_ordinary_command_allowed():
     assert result is None
 
 
+def test_read_windows_backslash_env_denied():
+    # Regression for bug #11: Read passes file_path in native OS form on
+    # Windows (backslash-separated), and every SECRET_PATH_PATTERNS entry is
+    # anchored on "/" -- without normalizing separators first, this silently
+    # never matched on Windows.
+    result = run_hook({"tool_name": "Read", "tool_input": {"file_path": r"C:\Users\cori\.env"}})
+    assert result is not None
+    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_read_windows_backslash_id_rsa_denied():
+    result = run_hook({"tool_name": "Read", "tool_input": {"file_path": r"C:\Users\cori\.ssh\id_rsa"}})
+    assert result is not None
+    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_read_windows_backslash_id_rsa_pub_allowed():
+    result = run_hook({"tool_name": "Read", "tool_input": {"file_path": r"C:\Users\cori\.ssh\id_rsa.pub"}})
+    assert result is None
+
+
+def test_read_windows_backslash_ordinary_file_allowed():
+    result = run_hook({"tool_name": "Read", "tool_input": {"file_path": r"C:\Users\cori\README.md"}})
+    assert result is None
+
+
 def test_malformed_stdin_fails_open():
     proc = subprocess.run(
         [sys.executable, str(HOOK)],

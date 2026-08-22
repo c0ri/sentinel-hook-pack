@@ -49,7 +49,12 @@ CUT_WORD = re.compile(r'\bcut\b')
 
 
 def is_secret_path(path):
-    path = path.strip()
+    # Patterns below are anchored on "/" as the separator. Claude Code's Read
+    # tool passes file_path in native OS form -- backslash-separated on
+    # Windows -- so without this normalization every pattern silently fails
+    # to match there. A no-op on Linux/macOS, where Read never passes
+    # backslash-separated paths.
+    path = path.strip().replace('\\', '/')
     return any(re.search(pat, path, re.IGNORECASE) for pat in SECRET_PATH_PATTERNS)
 
 
