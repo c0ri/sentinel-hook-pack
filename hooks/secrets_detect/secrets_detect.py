@@ -43,8 +43,15 @@ class SecretDetector:
     allowed).
 
     Values in _BENIGN_VALUES are left alone -- otherwise every SSH option
-    with "Key" in its name (StrictHostKeyChecking=no) would have its value
+    with "Key" in its name (StrictHostKeyChecking=[ENV_SECRET] would have its value
     replaced, for no security benefit.
+
+    The value side is also bounded to a secret-shaped charset with a
+    10-char minimum, not "any non-whitespace run" -- an unbounded \\S+
+    both false-positives on ordinary code (sort_keys=[ENV_SECRET] key=[ENV_SECRET]
+    r: ...) and, worse, swallows trailing code syntax like closing
+    parens into the "value" it redacts, corrupting the file it's meant
+    to protect.
 
     Pass 2 -- Known API key shapes (most-specific to least-specific).
     Catches bare secrets even without an assignment context. Order
@@ -56,7 +63,8 @@ class SecretDetector:
     _SENSITIVE = r'KEY|SECRET|TOKEN|PASSWORD|PASS|AUTH|CRED|CERT|PRIVATE|WEBHOOK|APIKEY'
 
     _ENV_SECRET = re.compile(
-        rf'((?:[A-Z][A-Z0-9_]*(?:{_SENSITIVE})[A-Z0-9_]*|(?:{_SENSITIVE})S?)=)(\S+)',
+        rf'((?:[A-Z][A-Z0-9_]*(?:{_SENSITIVE})[A-Z0-9_]*|(?:{_SENSITIVE})S?)=)'
+        rf'([A-Za-z0-9_\-./+]{{10,}}={{0,2}})',
         re.IGNORECASE,
     )
 

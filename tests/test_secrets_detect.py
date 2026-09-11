@@ -50,6 +50,35 @@ def test_write_known_shape_without_assignment_context():
     assert "ghp_" not in redacted
 
 
+def test_write_ignores_key_shaped_python_kwargs():
+    # sort_keys=True / key=[ENV_SECRET] are ordinary code, not env-style secret
+    # assignments -- the value is too short/wrong-shaped to be a real
+    # secret, and an unbounded \S+ here used to swallow trailing syntax
+    # (e.g. "True))") and corrupt the file.
+    result = run_hook({
+        "tool_name": "Write",
+        "tool_input": {
+            "file_path": "/tmp/x.py",
+            "content": (
+                "path.write_text(json.dumps(data, indent=2, sort_keys=[ENV_SECRET]
+                "rows.sort(key=[ENV_SECRET] r: (r['cmd'], r['ip']))\n"
+            ),
+        },
+    })
+    assert result is None
+
+
+def test_write_does_not_merge_across_a_second_equals():
+    # the value charset allows a trailing "=" or "==" for base64 padding,
+    # but must not let a match span into an unrelated second "name=value"
+    # pair that happens to follow closely.
+    result = run_hook({
+        "tool_name": "Write",
+        "tool_input": {"file_path": "/tmp/x.py", "content": "print(key, sort_keys=True)"},
+    })
+    assert result is None
+
+
 def test_write_no_secret_is_silent_noop():
     result = run_hook({
         "tool_name": "Write",
