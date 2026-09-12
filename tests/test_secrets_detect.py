@@ -51,7 +51,7 @@ def test_write_known_shape_without_assignment_context():
 
 
 def test_write_ignores_key_shaped_python_kwargs():
-    # sort_keys=True / key=[ENV_SECRET] are ordinary code, not env-style secret
+    # sort_keys=True / key=lambda are ordinary code, not env-style secret
     # assignments -- the value is too short/wrong-shaped to be a real
     # secret, and an unbounded \S+ here used to swallow trailing syntax
     # (e.g. "True))") and corrupt the file.
@@ -60,8 +60,8 @@ def test_write_ignores_key_shaped_python_kwargs():
         "tool_input": {
             "file_path": "/tmp/x.py",
             "content": (
-                "path.write_text(json.dumps(data, indent=2, sort_keys=[ENV_SECRET]
-                "rows.sort(key=[ENV_SECRET] r: (r['cmd'], r['ip']))\n"
+                "path.write_text(json.dumps(data, indent=2, sort_keys=True))\n"
+                "rows.sort(key=lambda r: (r['cmd'], r['ip']))\n"
             ),
         },
     })
